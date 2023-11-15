@@ -91,6 +91,25 @@ int mm_init(void)
     return 0;
 }
 
+static void *extend_heap(size_t words)
+{
+    char *bp;
+    size_t size;
+
+    /* 정렬을 유지하기 위해 짝수 개의 단어를 할당 */
+    size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
+    if ((long)(bp = mem_sbrk(size)) == -1)
+        return NULL;
+    
+    /* 프리 블록 머리글/바닥글 및 에필로그 머리글 초기화하기 */
+    PUT(HDRP(bp), PACK(size, 0)); /* Free block header */
+    PUT(FTRP(bp), PACK(size, 0)); /* Free block footer */
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
+
+    /* 이전 블록이 비어있는 경우 합치기 */
+    return coalesce(bp);
+}
+
 /* 
  * mm_malloc - Allocate a block by incrementing the brk pointer.
  *     Always allocate a block whose size is a multiple of the alignment.
