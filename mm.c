@@ -62,7 +62,7 @@ team_t team = {
 #define PUT(p, val) (*(unsigned int*)(p) = (val))
 
 /* 주소 p에서 크기와 할당된 필드를 읽는다. */
-#define GET_SZIE(p) (GET(p) & ~0x7)
+#define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
 /* 블록 ptr bp가 주어지면 헤더와 풋터의 주소를 계산 */
@@ -70,12 +70,14 @@ team_t team = {
 #define FTRP(bp)    ((char*)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
 /* 블록 ptr bp가 주어지면, 다음 블록과 이전 블록의 주소를 계산 */
-#define NEXT_BLKP(bp) ((char*)(bp) + GET_SIZE(((char*)*(bp) - WSIZE)))
+#define NEXT_BLKP(bp) ((char*)(bp) + GET_SIZE(((char*)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char*)(bp) - GET_SIZE(((char*)(bp) - DSIZE)))
 
+
+/* 최초 가용 블록으로 힙 생성하기 */
+static char* heap_listp = 0;
 int mm_init(void)
 {
-    static char* heap_listp = 0;
     /* 초기 빈 힙 생성 */
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
@@ -91,6 +93,7 @@ int mm_init(void)
     return 0;
 }
 
+/* 새 가용 블록으로 힙 확장하기 */
 static void *extend_heap(size_t words)
 {
     char *bp;
@@ -129,8 +132,46 @@ void *mm_malloc(size_t size)
 /*
  * mm_free - Freeing a block does nothing.
  */
-void mm_free(void *ptr)
+/* 블록을 반환하고 경계 태그 연결을 사용해서 상수 시간에 인접 가용 블록들과 통합*/
+void mm_free(void *bp)
 {
+    size_t size = GET_SIZE(HDRP(bp));
+
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+    coalesce(bp);
+}
+
+static void *coalesce(void* bp)
+{
+    size_t prve_alloc = GET_ALLOC(PTRP(PREV_BLKP(bp)));
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
+
+    if (prve_alloc && next_alloc) {     /* Case 1 */
+        return bp;
+    }   
+
+    else if (prve_alloc && !next_alloc) { /* Case 2 */
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
+    }
+
+    else if (!prve_alloc && next_alloc) { /* CASAE 3 */
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+
+    else {                                /* Case 4 */
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp))); 
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+    return bp;
 }
 
 /*
