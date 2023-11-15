@@ -54,7 +54,7 @@ team_t team = {
 
 #define MAX(x, y)  ((x) > (y)? (x) : (y))
 
-/* Pack a size and allocated bit in to a word */
+/* 크기와 할당된 비트를 한 단어에 담습니다. */
 #define PACK(size, alloc) ((size) | (alloc))
 
 /* 주소 p에서 워드 읽고 쓰기 */
@@ -75,10 +75,20 @@ team_t team = {
 
 int mm_init(void)
 {
-    /* Create the inittial empty heap */
+    static char* heap_listp = 0;
+    /* 초기 빈 힙 생성 */
     if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
         return -1;
     PUT(heap_listp, 0);
+    PUT(heap_listp + (1*WSIZE), PACK(DSIZE, 1));
+    PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));
+    PUT(heap_listp + (3*WSIZE), PACK(0, 1));
+    heap_listp += (2*WSIZE);
+
+    /* 빈 힙을 CHUNKSIZE 바이트의 여유 블록으로 확장합니다.*/
+    if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
+        return -1;
+    return 0;
 }
 
 /* 
