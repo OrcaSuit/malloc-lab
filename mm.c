@@ -73,6 +73,39 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char*)(bp) + GET_SIZE(((char*)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char*)(bp) - GET_SIZE(((char*)(bp) - DSIZE)))
 
+
+static void *coalesce(void* bp)
+{
+    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
+
+    if (prev_alloc && next_alloc) {     /* Case 1 */
+        return bp;
+    }   
+
+    else if (prev_alloc && !next_alloc) { /* Case 2 */
+        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
+    }
+
+    else if (!prev_alloc && next_alloc) { /* CASAE 3 */
+        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+
+    else {                                /* Case 4 */
+        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp))); 
+        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
+        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
+        bp = PREV_BLKP(bp);
+    }
+    return bp;
+}
+
 /* 새 가용 블록으로 힙 확장하기 */
 static void *extend_heap(size_t words)
 {
@@ -127,7 +160,14 @@ static void *find_fit(size_t asize){
     return NULL; /* 적합한 블록을 찾지 못함 */
 }
 
-/*할당하려는 메모리 크기에 맞게 가용 블록을 조정하고 할당.*/
+
+
+/*할당하려는 메모리 크기에 맞게 가용 블록을 조정하고 할당.
+주요 작업 : 
+1. 블록 크기 확인
+2. 분할 여부 결정
+3. 메모리 할당 및 분할
+*/
 static void place(void *bp, size_t asize) {
     size_t csize = GET_SIZE(HDRP(bp)); // 현재 블록의 크기를 얻음
 
@@ -144,8 +184,6 @@ static void place(void *bp, size_t asize) {
         PUT(FTRP(bp), PACK(csize, 1)); // 풋터도 할당 상태로 변경
     }
 }
-
-
 
 /* 
  * mm_malloc - Allocate a block by incrementing the brk pointer.
@@ -182,14 +220,14 @@ void *mm_malloc(size_t size)
     place(bp, asize);
     return bp;
 
-    // int newsize = ALIGN(size + SIZE_T_SIZE);
-    // void *p = mem_sbrk(newsize);
-    // if (p == (void *)-1)
-	// return NULL;
-    // else {
-    //     *(size_t *)p = size;
-    //     return (void *)((char *)p + SIZE_T_SIZE);
-    // }
+    int newsize = ALIGN(size + SIZE_T_SIZE);
+    void *p = mem_sbrk(newsize);
+    if (p == (void *)-1)
+	return NULL;
+    else {
+        *(size_t *)p = size;
+        return (void *)((char *)p + SIZE_T_SIZE);
+    }
 }
 
 /*
@@ -205,37 +243,6 @@ void mm_free(void *bp)
     coalesce(bp);
 }
 
-static void *coalesce(void* bp)
-{
-    size_t prev_alloc = GET_ALLOC(PTRP(PREV_BLKP(bp)));
-    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
-    size_t size = GET_SIZE(HDRP(bp));
-
-    if (prev_alloc && next_alloc) {     /* Case 1 */
-        return bp;
-    }   
-
-    else if (prev_alloc && !next_alloc) { /* Case 2 */
-        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-        PUT(HDRP(bp), PACK(size, 0));
-        PUT(FTRP(bp), PACK(size, 0));
-    }
-
-    else if (!prev_alloc && next_alloc) { /* CASAE 3 */
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        PUT(FTRP(bp), PACK(size, 0));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
-        bp = PREV_BLKP(bp);
-    }
-
-    else {                                /* Case 4 */
-        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp))); 
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));
-        bp = PREV_BLKP(bp);
-    }
-    return bp;
-}
 
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
