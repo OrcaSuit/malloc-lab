@@ -73,6 +73,26 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char*)(bp) + GET_SIZE(((char*)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char*)(bp) - GET_SIZE(((char*)(bp) - DSIZE)))
 
+/* 새 가용 블록으로 힙 확장하기 */
+static void *extend_heap(size_t words)
+{
+    char *bp;
+    size_t size;
+
+    /* 정렬을 유지하기 위해 짝수 개의 단어를 할당 */
+    size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
+    if ((long)(bp = mem_sbrk(size)) == -1)
+        return NULL;
+    
+    /* 프리 블록 머리글/바닥글 및 에필로그 머리글 초기화하기 */
+    PUT(HDRP(bp), PACK(size, 0)); /* Free block header */
+    PUT(FTRP(bp), PACK(size, 0)); /* Free block footer */
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
+
+    /* 이전 블록이 비어있는 경우 합치기 */
+    return coalesce(bp);
+}
+
 
 /* 최초 가용 블록으로 힙 생성하기 */
 static char* heap_listp = 0;
@@ -93,25 +113,39 @@ int mm_init(void)
     return 0;
 }
 
-/* 새 가용 블록으로 힙 확장하기 */
-static void *extend_heap(size_t words)
-{
-    char *bp;
-    size_t size;
 
-    /* 정렬을 유지하기 위해 짝수 개의 단어를 할당 */
-    size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
-    if ((long)(bp = mem_sbrk(size)) == -1)
-        return NULL;
-    
-    /* 프리 블록 머리글/바닥글 및 에필로그 머리글 초기화하기 */
-    PUT(HDRP(bp), PACK(size, 0)); /* Free block header */
-    PUT(FTRP(bp), PACK(size, 0)); /* Free block footer */
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
+/*주어진 크기 `asize` 에 맞는 가용블록을 찾아 탐색 */
+static void *find_fit(size_t asize){
+    void* bp;
 
-    /* 이전 블록이 비어있는 경우 합치기 */
-    return coalesce(bp);
+    /* 가용 리스트의 시작부터 끝까지 순차적으로 탐색 */
+    for (bp = heap_listp; GET_SIZE(HDRP(bp))> 0; bp = NEXT_BLKP(bp)) {
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+            return bp;
+        }
+    }
+    return NULL; /* 적합한 블록을 찾지 못함 */
 }
+
+/*할당하려는 메모리 크기에 맞게 가용 블록을 조정하고 할당.*/
+static void place(void *bp, size_t asize) {
+    size_t csize = GET_SIZE(HDRP(bp)); // 현재 블록의 크기를 얻음
+
+    // 현재 블록 크기가 요청 크기 + 최소 블록 크기보다 크거나 같으면 분할
+    if ((csize - asize) >= (2*DSIZE)) {
+        PUT(HDRP(bp), PACK(asize, 1)); // 현재 블록에 asize 크기로 할당
+        bp = NEXT_BLKP(bp); // 새로운 가용 블록의 시작 위치로 이동
+        PUT(HDRP(bp), PACK(csize-asize, 0)); // 새로운 가용 블록 생성
+        PUT(FTRP(bp), PACK(csize-asize, 0)); // 새로운 가용 블록의 풋터 설정
+    }
+    // 분할할 필요가 없는 경우
+    else {
+        PUT(HDRP(bp), PACK(csize, 1)); // 전체 블록을 할당 상태로 변경
+        PUT(FTRP(bp), PACK(csize, 1)); // 풋터도 할당 상태로 변경
+    }
+}
+
+
 
 /* 
  * mm_malloc - Allocate a block by incrementing the brk pointer.
@@ -173,21 +207,21 @@ void mm_free(void *bp)
 
 static void *coalesce(void* bp)
 {
-    size_t prve_alloc = GET_ALLOC(PTRP(PREV_BLKP(bp)));
+    size_t prev_alloc = GET_ALLOC(PTRP(PREV_BLKP(bp)));
     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t size = GET_SIZE(HDRP(bp));
 
-    if (prve_alloc && next_alloc) {     /* Case 1 */
+    if (prev_alloc && next_alloc) {     /* Case 1 */
         return bp;
     }   
 
-    else if (prve_alloc && !next_alloc) { /* Case 2 */
+    else if (prev_alloc && !next_alloc) { /* Case 2 */
         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
     }
 
-    else if (!prve_alloc && next_alloc) { /* CASAE 3 */
+    else if (!prev_alloc && next_alloc) { /* CASAE 3 */
         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp), PACK(size, 0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0));
