@@ -26,9 +26,9 @@ team_t team = {
     /* Team name */
     "ateam",
     /* First member's full name */
-    "Harry Bovik",
+    "Kim Keon woo",
     /* First member's email address */
-    "bovik@cs.cmu.edu",
+    "orcasuit@gmail.com",
     /* Second member's full name (leave blank if none) */
     "",
     /* Second member's email address (leave blank if none) */
@@ -43,13 +43,42 @@ team_t team = {
 
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
-
 /* 
  * mm_init - initialize the malloc package.
  */
+
+/*기본 상수들*/
+#define WSIZE   4   /* 워드와 헤더/풋터 사이즈 (bytes) */
+#define DSIZE   8   /* 더블 워드 사이즈 (bytes) */
+#define CHUNKSIZE (1<<12) /* 힙을 이만큼 확장 (bytes) */
+
+#define MAX(x, y)  ((x) > (y)? (x) : (y))
+
+/* Pack a size and allocated bit in to a word */
+#define PACK(size, alloc) ((size) | (alloc))
+
+/* 주소 p에서 워드 읽고 쓰기 */
+#define GET(p) (*(unsigned int *)(p))
+#define PUT(p, val) (*(unsigned int*)(p) = (val))
+
+/* 주소 p에서 크기와 할당된 필드를 읽는다. */
+#define GET_SZIE(p) (GET(p) & ~0x7)
+#define GET_ALLOC(p) (GET(p) & 0x1)
+
+/* 블록 ptr bp가 주어지면 헤더와 풋터의 주소를 계산 */
+#define HDRP(bp)    ((char*)(bp) - WSIZE)
+#define FTRP(bp)    ((char*)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
+
+/* 블록 ptr bp가 주어지면, 다음 블록과 이전 블록의 주소를 계산 */
+#define NEXT_BLKP(bp) ((char*)(bp) + GET_SIZE(((char*)*(bp) - WSIZE)))
+#define PREV_BLKP(bp) ((char*)(bp) - GET_SIZE(((char*)(bp) - DSIZE)))
+
 int mm_init(void)
 {
-    return 0;
+    /* Create the inittial empty heap */
+    if ((heap_listp = mem_sbrk(4*WSIZE)) == (void *)-1)
+        return -1;
+    PUT(heap_listp, 0);
 }
 
 /* 
