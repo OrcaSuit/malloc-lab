@@ -37,12 +37,17 @@ team_t team = {
 
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
+//메모리 정렬의 기준이 되는 바이트 수를 정의 여기서 8은 메모리가 8바이트 경게에 정렬되어야 함을 의미
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
-
+// size를 ALIGNMENT (여기서는 8)의 배수로 반올림합니다. 
+// 이를 통해 메모리 할당이 항상 8바이트 경계에 맞춰지도록 보장.
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+//sizeof(size_t)의 값을 ALIGN 매크로를 사용하여 8바이트 경계에 맞춥니다. 
+
+
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -72,6 +77,17 @@ team_t team = {
 /* 블록 ptr bp가 주어지면, 다음 블록과 이전 블록의 주소를 계산 */
 #define NEXT_BLKP(bp) ((char*)(bp) + GET_SIZE(((char*)(bp) - WSIZE)))
 #define PREV_BLKP(bp) ((char*)(bp) - GET_SIZE(((char*)(bp) - DSIZE)))
+
+static char* heap_listp;
+
+static void *coalesce(void* bp);
+static void *extend_heap(size_t words);
+int mm_init(void);
+static void *find_fit(size_t asize);
+static void place(void *bp, size_t asize);
+void *mm_malloc(size_t size);
+void mm_free(void *bp);
+void *mm_realloc(void *ptr, size_t size);
 
 
 static void *coalesce(void* bp)
@@ -128,7 +144,6 @@ static void *extend_heap(size_t words)
 
 
 /* 최초 가용 블록으로 힙 생성하기 */
-static char* heap_listp = 0;
 int mm_init(void)
 {
     /* 초기 빈 힙 생성 */
@@ -160,8 +175,6 @@ static void *find_fit(size_t asize){
     return NULL; /* 적합한 블록을 찾지 못함 */
 }
 
-
-
 /*할당하려는 메모리 크기에 맞게 가용 블록을 조정하고 할당.
 주요 작업 : 
 1. 블록 크기 확인
@@ -174,6 +187,7 @@ static void place(void *bp, size_t asize) {
     // 현재 블록 크기가 요청 크기 + 최소 블록 크기보다 크거나 같으면 분할
     if ((csize - asize) >= (2*DSIZE)) {
         PUT(HDRP(bp), PACK(asize, 1)); // 현재 블록에 asize 크기로 할당
+        PUT(FTRP(bp), PACK(asize, 1)); // 
         bp = NEXT_BLKP(bp); // 새로운 가용 블록의 시작 위치로 이동
         PUT(HDRP(bp), PACK(csize-asize, 0)); // 새로운 가용 블록 생성
         PUT(FTRP(bp), PACK(csize-asize, 0)); // 새로운 가용 블록의 풋터 설정
@@ -256,7 +270,9 @@ void *mm_realloc(void *ptr, size_t size)
     newptr = mm_malloc(size);
     if (newptr == NULL)
       return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    
+    copySize = GET_SIZE(HDRP(oldptr));
+    //copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
     if (size < copySize)
       copySize = size;
     memcpy(newptr, oldptr, copySize);
